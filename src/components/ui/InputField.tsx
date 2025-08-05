@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 export default interface InputFormProps {
     label: string
     placeholder: string
@@ -8,25 +10,47 @@ export default interface InputFormProps {
 }
 
 export function InputForm({ label, placeholder, value, type, large, onChange }: InputFormProps) {
+    const [focused, setFocused] = useState(false);
+
     return (
-        <div className="flex flex-col gap-1.5">
-            <label className="text-zinc-600 font-medium text-sm">{label}</label>
-            {large ? (
-                <textarea
-                    className={`bg-white py-2 px-3 border border-zinc-300 placeholder:text-zinc-500 text-zinc-900 shadow-xs rounded-lg focus:ring-[4px] focus:ring-zinc-400/15 focus:outline-none h-24 align-text-top`}
-                    placeholder={placeholder}
-                    value={value || ''}
-                    onChange={onChange}
-                />
-            ) : (
-                <input
-                    className={`bg-white py-2 px-3 border border-zinc-300 placeholder:text-zinc-500 text-zinc-900 shadow-xs rounded-lg focus:ring-[4px] focus:ring-zinc-400/15 focus:outline-none`}
-                    type={type}
-                    placeholder={placeholder}
-                    value={value || ''}
-                    onChange={onChange}
-                />
-            )}
+        <div className="group relative">
+            <label className="block text-sm font-semibold text-gray-300 mb-3 transition-colors duration-300">
+                {label}
+            </label>
+            <div className="relative">
+                {large ? (
+                    <textarea
+                        className={`w-full h-32 px-4 py-4 bg-gray-800/50 border rounded-xl text-white placeholder-gray-400 backdrop-blur-sm transition-all duration-300 resize-none
+                            ${focused 
+                                ? 'border-purple-500 shadow-lg shadow-purple-500/25 bg-gray-800/80' 
+                                : 'border-gray-600/50 hover:border-gray-500/70'
+                            }`}
+                        placeholder={placeholder}
+                        value={value || ''}
+                        onChange={onChange}
+                        onFocus={() => setFocused(true)}
+                        onBlur={() => setFocused(false)}
+                    />
+                ) : (
+                    <input
+                        className={`w-full px-4 py-4 bg-gray-800/50 border rounded-xl text-white placeholder-gray-400 backdrop-blur-sm transition-all duration-300
+                            ${focused 
+                                ? 'border-purple-500 shadow-lg shadow-purple-500/25 bg-gray-800/80' 
+                                : 'border-gray-600/50 hover:border-gray-500/70'
+                            }`}
+                        type={type}
+                        placeholder={placeholder}
+                        value={value || ''}
+                        onChange={onChange}
+                        onFocus={() => setFocused(true)}
+                        onBlur={() => setFocused(false)}
+                    />
+                )}
+                {/* Animated border glow */}
+                <div className={`absolute inset-0 rounded-xl bg-gradient-to-r from-purple-500/20 to-blue-500/20 blur-sm transition-opacity duration-300 -z-10 ${
+                    focused ? 'opacity-100' : 'opacity-0'
+                }`}></div>
+            </div>
         </div>
-    )
+    );
 }
