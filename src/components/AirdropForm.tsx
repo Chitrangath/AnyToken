@@ -6,13 +6,13 @@ import { chainsToTSender, tsenderAbi, erc20Abi } from "@/constants";
 import { useChainId, useConfig, useAccount, useWriteContract } from "wagmi";
 import { readContract, waitForTransactionReceipt } from "@wagmi/core";
 import { calculateTotal } from "@/utils";
-import { FaCoins, FaUsers, FaCheckCircle } from "react-icons/fa";
+import { FaCoins, FaUsers, FaCheckCircle, FaInfoCircle } from "react-icons/fa";
 
 // Stats Card Component
 function StatsCard({ icon: Icon, title, value, description }: {
     icon: React.ComponentType<{ className?: string; size?: number }>;
     title: string;
-    value: string | number;
+    value: string;
     description: string;
 }) {
     return (
@@ -40,15 +40,97 @@ export default function AirdropForm(){
     const [tokenAddress, setTokenAddress] = useState("")
     const [receiverAddress, setReceiverTokenAddress] = useState("")
     const [amounts, setAmount] = useState("")
+    const [notification, setNotification] = useState<{type: 'success' | 'error' | 'info', message: string} | null>(null)
+    const [tokenDecimals, setTokenDecimals] = useState<number | null>(null)
+    const [tokenSymbol, setTokenSymbol] = useState<string>("")
+    const [tokenName, setTokenName] = useState<string>("")
+    
     const chainId = useChainId()
     const config = useConfig()
     const account = useAccount()
-    const total: number = useMemo(() => calculateTotal(amounts), [amounts])
+    
+    // Convert user input amounts to wei (with decimals)
+    const convertedAmounts = useMemo(() => {
+        if (!tokenDecimals) return [];
+        return amounts.split(/[,\n]+/)
+            .map(amt => amt.trim())
+            .filter(amt => amt !== '')
+            .map(amt => {
+                const numAmount = parseFloat(amt);
+                if (isNaN(numAmount)) return BigInt(0);
+                // Convert to wei: amount * 10^decimals
+                return BigInt(Math.floor(numAmount * Math.pow(10, tokenDecimals)));
+            });
+    }, [amounts, tokenDecimals]);
+
+    // Calculate total in wei
+    const totalWei = useMemo(() => {
+        return convertedAmounts.reduce((sum, amount) => sum + amount, BigInt(0));
+    }, [convertedAmounts]);
+
+    // Total for display (human readable)
+    const total = useMemo(() => {
+        if (!tokenDecimals) return 0;
+        return Number(totalWei) / Math.pow(10, tokenDecimals);
+    }, [totalWei, tokenDecimals]);
+
     const { data: hash, isPending, writeContractAsync } = useWriteContract()
 
     useEffect(() => {
         setMounted(true);
     }, []);
+
+    // Fetch token info when address changes
+    useEffect(() => {
+        if (tokenAddress && tokenAddress.length === 42) {
+            fetchTokenInfo();
+        } else {
+            setTokenDecimals(null);
+            setTokenSymbol("");
+            setTokenName("");
+        }
+    }, [tokenAddress, config]);
+
+    async function fetchTokenInfo() {
+        try {
+            setNotification({type: 'info', message: 'Fetching token information...'});
+            
+            const [decimals, symbol, name] = await Promise.all([
+                readContract(config, {
+                    abi: erc20Abi,
+                    address: tokenAddress as `0x${string}`,
+                    functionName: "decimals",
+                }) as Promise<number>,
+                readContract(config, {
+                    abi: erc20Abi,
+                    address: tokenAddress as `0x${string}`,
+                    functionName: "symbol",
+                }) as Promise<string>,
+                readContract(config, {
+                    abi: erc20Abi,
+                    address: tokenAddress as `0x${string}`,
+                    functionName: "name",
+                }) as Promise<string>
+            ]);
+
+            setTokenDecimals(Number(decimals));
+            setTokenSymbol(String(symbol));
+            setTokenName(String(name));
+            setNotification({
+                type: 'success', 
+                message: `✅ Token info loaded: ${name} (${symbol}) - ${decimals} decimals`
+            });
+        } catch (error) {
+            console.error("Error fetching token info:", error);
+            setNotification({
+                type: 'error', 
+                message: 'Failed to fetch token information. Please check the token address.'
+            });
+            setTokenDecimals(null);
+            setTokenSymbol("");
+            setTokenName("");
+        }
+    }
 
     // Don't render until component is mounted on client
     if (!mounted) {
@@ -61,10 +143,10 @@ export default function AirdropForm(){
         );
     }
 
-    async function getApprovedAmount(tSenderAddress: string | null): Promise<number>{
+    async function getApprovedAmount(tSenderAddress: string | null): Promise<bigint>{
         if (!tSenderAddress || !account.address) {
-            alert("No address found, please use a supported chain")
-            return 0;
+            setNotification({type: 'error', message: 'No address found, please use a supported chain'})
+            return BigInt(0);
         }
         
         try {
@@ -73,58 +155,76 @@ export default function AirdropForm(){
                 address: tokenAddress as `0x${string}`,
                 functionName: "allowance",
                 args: [account.address as `0x${string}`, tSenderAddress as `0x${string}`],
-            })
-            return Number(response);
+            }) as bigint;
+            return response;
         } catch (error) {
             console.error("Error reading allowance:", error);
-            return 0;
+            setNotification({type: 'error', message: 'Error reading token allowance. Please check the token address.'})
+            return BigInt(0);
         }
     }
 
     async function handleSubmit() {
         if (!account.address) {
-            alert("Please connect your wallet");
+            setNotification({type: 'error', message: 'Please connect your wallet'})
             return;
         }
+
+        if (!tokenDecimals) {
+            setNotification({type: 'error', message: 'Please enter a valid token address first'})
+            return;
+        }
+
+        if (convertedAmounts.length === 0) {
+            setNotification({type: 'error', message: 'Please enter token amounts'})
+            return;
+        }
+
+        // Clear any previous notifications
+        setNotification(null)
 
         try {
             const tSenderAddress = chainsToTSender[chainId]["tsender"]
             if (!tSenderAddress) {
-                alert("No tSender contract found for this chain");
+                setNotification({type: 'error', message: 'No tSender contract found for this chain'})
                 return;
             }
 
+            setNotification({type: 'info', message: 'Starting transaction process...'})
             console.log("Starting transaction process...");
             const approvedAmount = await getApprovedAmount(tSenderAddress)
-            console.log("Current approved amount:", approvedAmount);
-            console.log("Total needed:", total);
+            console.log("Current approved amount:", approvedAmount.toString());
+            console.log("Total needed:", totalWei.toString());
 
             // Step 1: Approve if needed (but don't stop here)
-            if (approvedAmount < total) {
+            if (approvedAmount < totalWei) {
+                setNotification({type: 'info', message: 'Insufficient allowance, requesting approval...'})
                 console.log("Insufficient allowance, requesting approval...");
                 const approvalHash = await writeContractAsync({
                     abi: erc20Abi,
                     address: tokenAddress as `0x${string}`,
                     functionName: "approve", 
-                    args: [tSenderAddress as `0x${string}`, BigInt(total)],
+                    args: [tSenderAddress as `0x${string}`, totalWei],
                 })
                 
                 console.log("Approval transaction hash:", approvalHash);
+                setNotification({type: 'info', message: 'Waiting for approval confirmation...'})
                 const approvalReceipt = await waitForTransactionReceipt(config, {
                     hash: approvalHash,
                 })
                 console.log("Approval confirmed:", approvalReceipt);
+                setNotification({type: 'success', message: 'Token approval confirmed!'})
             } else {
                 console.log("Sufficient allowance already exists");
             }
 
             // Step 2: Always execute airdrop (whether we just approved or already had approval)
+            setNotification({type: 'info', message: 'Executing airdrop transaction...'})
             console.log("Executing airdrop...");
             const recipients = receiverAddress.split(/[,\n]+/).map(addr => addr.trim()).filter(addr => addr !== '');
-            const amountArray = amounts.split(/[,\n]+/).map(amt => BigInt(amt.trim())).filter(amt => amt > BigInt(0));
 
             console.log("Recipients:", recipients);
-            console.log("Amounts:", amountArray);
+            console.log("Amounts (wei):", convertedAmounts.map(amt => amt.toString()));
 
             const airdropHash = await writeContractAsync({
                 abi: tsenderAbi,
@@ -133,33 +233,44 @@ export default function AirdropForm(){
                 args: [
                     tokenAddress as `0x${string}`,
                     recipients,
-                    amountArray,
-                    BigInt(total), // Added the 4th parameter - total amount
+                    convertedAmounts, // Use converted amounts with proper decimals
+                    totalWei, // Use total in wei
                 ],
             })
 
             console.log("Airdrop transaction hash:", airdropHash);
+            setNotification({type: 'info', message: 'Waiting for airdrop confirmation...'})
             const airdropReceipt = await waitForTransactionReceipt(config, {
                 hash: airdropHash,
             })
             console.log("Airdrop confirmed:", airdropReceipt);
-            alert("Airdrop completed successfully!");
+            setNotification({type: 'success', message: '🎉 Airdrop completed successfully!'})
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Detailed error in handleSubmit:", error);
             
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorMessage = error?.message || String(error);
             console.error("Error message:", errorMessage);
             
-            // Handle specific error types
-            if (errorMessage.includes('user rejected')) {
-                alert("Transaction was cancelled by user");
+            // Handle specific error types with user-friendly messages
+            if (errorMessage.includes('user rejected') || errorMessage.includes('User rejected')) {
+                setNotification({type: 'error', message: 'Transaction was cancelled by user'})
             } else if (errorMessage.includes('insufficient funds')) {
-                alert("Insufficient funds for transaction");
+                setNotification({
+                    type: 'error', 
+                    message: '❌ Insufficient ETH for gas fees. Please add more ETH to your wallet and try again.'
+                })
+            } else if (errorMessage.includes('exceeds the balance of the account')) {
+                setNotification({
+                    type: 'error', 
+                    message: '❌ Insufficient ETH for gas fees. Please add more ETH to your wallet to cover transaction costs.'
+                })
             } else if (errorMessage.includes('execution reverted')) {
-                alert("Transaction reverted. Check contract parameters and balances.");
+                setNotification({type: 'error', message: 'Transaction reverted. Check contract parameters and token balances.'})
+            } else if (errorMessage.includes('network')) {
+                setNotification({type: 'error', message: 'Network error. Please check your connection and try again.'})
             } else {
-                alert(`Transaction failed: ${errorMessage || 'Unknown error'}`);
+                setNotification({type: 'error', message: `Transaction failed: ${errorMessage}`})
             }
         }
     }
@@ -177,7 +288,7 @@ export default function AirdropForm(){
                 <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-pink-500/5 rounded-full blur-3xl animate-pulse delay-2000"></div>
             </div>
 
-            {/* Main content */}
+            {/* Main content */} 
             <div className="relative pt-24 pb-12">
                 <div className="max-w-4xl mx-auto px-6">
                     {/* Hero section */}
@@ -204,22 +315,58 @@ export default function AirdropForm(){
                         <StatsCard 
                             icon={FaUsers}
                             title="Recipients"
-                            value={recipientCount || "0"}
+                            value={recipientCount.toString() || "0"}
                             description="Wallet addresses"
                         />
                         <StatsCard 
                             icon={FaCoins}
                             title="Total Amount"
-                            value={total.toLocaleString() || "0"}
-                            description="Tokens to distribute"
+                            value={total > 0 ? total.toLocaleString() : "0"}
+                            description={tokenSymbol ? `${tokenSymbol} tokens` : "Tokens to distribute"}
                         />
                         <StatsCard 
                             icon={FaCheckCircle}
                             title="Batch Size"
-                            value={amountCount || "0"}
+                            value={amountCount.toString() || "0"}
                             description="Distribution entries"
                         />
                     </div>
+
+                    {/* Token Info Display */}
+                    {tokenDecimals !== null && tokenName && (
+                        <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-2xl p-6 mb-6 animate-fade-in">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-blue-500/20 rounded-lg">
+                                    <FaInfoCircle className="text-blue-400" size={20} />
+                                </div>
+                                <div>
+                                    <h4 className="text-white font-semibold">{tokenName} ({tokenSymbol})</h4>
+                                    <p className="text-gray-400 text-sm">Decimals: {tokenDecimals} • Enter amounts as normal numbers (e.g., 100.5)</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Notification */}
+                    {notification && (
+                        <div className={`p-4 rounded-xl border-l-4 mb-6 animate-fade-in ${
+                            notification.type === 'success' 
+                                ? 'bg-green-500/10 border-green-500 text-green-400' 
+                                : notification.type === 'error'
+                                ? 'bg-red-500/10 border-red-500 text-red-400'
+                                : 'bg-blue-500/10 border-blue-500 text-blue-400'
+                        }`}>
+                            <div className="flex items-center justify-between">
+                                <p className="font-medium">{notification.message}</p>
+                                <button 
+                                    onClick={() => setNotification(null)}
+                                    className="text-gray-400 hover:text-white transition-colors"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Main form */}
                     <div className="bg-gradient-to-br from-gray-800/40 to-gray-900/40 backdrop-blur-xl rounded-3xl border border-gray-700/50 p-8 shadow-2xl shadow-purple-500/10">
@@ -244,20 +391,20 @@ Enter one address per line or separate with commas`}
                             />
                             
                             <InputForm
-                                label="💰 Token Amounts"
+                                label={`💰 Token Amounts ${tokenSymbol ? `(${tokenSymbol})` : ''}`}
                                 placeholder={`100
-250
-500
+250.5
+1000
 
-Enter amounts (one per line or comma separated)
-Must match the number of recipient addresses`}
+Enter amounts as normal numbers (e.g., 100.5)
+${tokenDecimals ? `Will be automatically converted using ${tokenDecimals} decimals` : 'Token decimals will be detected automatically'}`}
                                 value={amounts}
                                 large={true}
                                 onChange={e => setAmount(e.target.value)}
                             />
 
                             {/* Summary section */}
-                            {total > 0 && (
+                            {total > 0 && tokenSymbol && (
                                 <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-2xl p-6 animate-fade-in">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
@@ -273,17 +420,17 @@ Must match the number of recipient addresses`}
                                             <p className="text-2xl font-bold text-transparent bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text">
                                                 {total.toLocaleString()}
                                             </p>
-                                            <p className="text-sm text-gray-400">Total tokens needed</p>
+                                            <p className="text-sm text-gray-400">Total {tokenSymbol} needed</p>
                                         </div>
                                     </div>
                                 </div>
                             )}
 
-                            {/* Original Send Button - Kept unchanged as requested */}
+                            {/* Send Button */}
                             <button 
                                 onClick={handleSubmit}
                                 className="bg-gradient-to-r from-orange-400 to-yellow-400 hover:from-orange-500 hover:to-yellow-500 text-slate-900 font-bold py-3 px-8 rounded-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 border border-orange-300 mt-4 disabled:opacity-50 disabled:cursor-not-allowed w-full"
-                                disabled={isPending || !account.address}
+                                disabled={isPending || !account.address || !tokenDecimals}
                             >
                                 {isPending ? "⏳ Processing..." : "🚀 Send Tokens"}
                             </button>
@@ -305,8 +452,8 @@ Must match the number of recipient addresses`}
                             },
                             {
                                 icon: "🔒",
-                                title: "Secure & Audited",
-                                description: "Smart contracts audited and battle-tested"
+                                title: "Auto Decimals",
+                                description: "Automatically detects token decimals - no manual conversion needed"
                             }
                         ].map((feature, index) => (
                             <div key={index} className="group text-center p-6 rounded-2xl bg-gradient-to-br from-gray-800/30 to-gray-900/30 border border-gray-700/30 hover:border-purple-500/50 transition-all duration-500 hover:shadow-lg hover:shadow-purple-500/20">
