@@ -225,7 +225,7 @@ export default function AirdropForm(){
                     <div className="bg-gradient-to-br from-gray-800/40 to-gray-900/40 backdrop-blur-xl rounded-3xl border border-gray-700/50 p-8 shadow-2xl shadow-purple-500/10">
                         <div className="space-y-8">
                             <InputForm
-                                label="🪙 Token Contract Address"
+                                label="🧾 Token Contract Address"
                                 placeholder="0x... Enter the ERC-20 token contract address"
                                 value={tokenAddress}
                                 onChange={e => setTokenAddress(e.target.value)}
