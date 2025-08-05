@@ -5,7 +5,7 @@ import { Providers } from "./providers";
 import Header from "@/components/Header";
 
 export const metadata: Metadata = {
-  title: "Tsender",
+  title: "AnyToken",
 };
 
 export default function RootLayout(props:{children: ReactNode}){
