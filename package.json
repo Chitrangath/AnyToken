@@ -2,6 +2,7 @@
   "name": "ts-tsender-ui-cu",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "anvil": "anvil --load-state tsender-deployed.json",
     "dev": "next dev --turbopack",

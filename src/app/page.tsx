@@ -1,10 +1,25 @@
 "use client"
 
+import { useState, useEffect } from "react";
 import HomeContent from "@/components/HomeContent";
 import { useAccount } from "wagmi";
 
 export default function Home() {
   const { isConnected } = useAccount()
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+  
+ if (!mounted) {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900">
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-purple-500"></div>
+      </div>
+    </div>
+  );
+}
+
   return (
     <div>
       {isConnected ? (
