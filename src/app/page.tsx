@@ -8,7 +8,10 @@ export default function Home() {
   const { isConnected } = useAccount()
   const [mounted, setMounted] = useState(false);
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    console.log("mounted");
+    setMounted(true);
+  }, []);
   
  if (!mounted) {
   return (
@@ -18,6 +21,7 @@ export default function Home() {
       </div>
     </div>
   );
+
 }
 
   return (
